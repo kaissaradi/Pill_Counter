@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pill Detection</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main>
+    <h1>Pill Detection</h1>
+    <div class="camera-container">
+      <video id="video"></video>
+      <canvas id="overlay"></canvas>
+    </div>
+    <div class="controls">
+      <button id="startButton" class="btn" onclick="startDetection()">Start</button>
+      <button id="stopButton" class="btn" onclick="stopDetection()" disabled>Stop</button>
+    </div>
+    <div class="results">
+      <p id="pillCount">Pill Count: 0</p>
+      <p id="pillTypeList">Pill Types:</p>
+    </div>
+    <div id="camera-error" class="error hidden">
+      <p>Unable to access your camera. Please check your camera permissions and try again.</p>
+    </div>
+  </main>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/ml5"></script>
+  <script src="script.js"></script>
+</body>
+</html>
