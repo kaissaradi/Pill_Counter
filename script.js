@@ -1,106 +1,121 @@
 let video;
 let detector;
-let detections = [];
+let detections = {};
+let isDetecting = false;
+let canvasWidth = 480;  // Match this to the width in CSS
+let canvasHeight = 360; // Match this to the height in CSS
 
 function setup() {
-  const canvas = createCanvas(640, 480);
-  canvas.parent('overlay'); // Attach canvas to overlay div
+  const canvas = createCanvas(canvasWidth, canvasHeight);
+  canvas.parent('overlay');
 
-  // Create the video element and show it by default
   video = createCapture(VIDEO);
-  video.size(640, 480);
-  video.hide(); // Hide the default video element
-  video.elt.setAttribute('playsinline', ''); // Ensures video plays inline on mobile devices
+  video.size(canvasWidth, canvasHeight);
+  video.hide();
 
-  // Initialize the detector
-  videoReady();
+  const startButton = select('#startButton');
+  const stopButton = select('#stopButton');
+  
+  startButton.mousePressed(startDetection);
+  stopButton.mousePressed(stopDetection);
 }
 
-function videoReady() {
+function startDetection() {
+  if (isDetecting) return;
+  
+  isDetecting = true;
+  select('#startButton').attribute('disabled', '');
+  select('#stopButton').removeAttribute('disabled');
+  
   detector = ml5.objectDetector('cocossd', modelReady);
 }
 
 function modelReady() {
-  console.log('Model is ready!');
+  console.log('Model is ready');
+  detectObjects();
+}
+
+function detectObjects() {
+  if (!isDetecting) return;
+
   detector.detect(video, gotDetections);
 }
 
 function gotDetections(error, results) {
   if (error) {
-    console.error(error);
-    select('#camera-error').html(`Error: ${error}`).removeClass('hidden');
-  } else {
-    detections = results;
-    detector.detect(video, gotDetections); // Continue detecting
+    console.error('Detection error:', error);
+    select('#camera-error').removeClass('hidden');
+    return;
   }
+
+  // Clear old detections
+  detections = {};
+
+  for (let object of results) {
+    if (!detections[object.label]) {
+      detections[object.label] = [];
+    }
+    detections[object.label].push(object);
+  }
+
+  detectObjects(); // Continue the detection loop
 }
 
 function draw() {
-  if (video && video.loadedmetadata) {
-    image(video, 0, 0);
+  if (!isDetecting) return;
 
-    let pillCount = 0;
-    let pillTypes = '';
+  // Scale and center the video to fit the canvas
+  let scale = Math.min(width / video.width, height / video.height);
+  let x = (width - video.width * scale) / 2;
+  let y = (height - video.height * scale) / 2;
+  
+  image(video, x, y, video.width * scale, video.height * scale);
 
-    for (let i = 0; i < detections.length; i += 1) {
-      const object = detections[i];
-      // Update this label with the class name your trained model predicts (e.g., "pill")
-      if (object.label === 'your_pill_class_name') {
+  let pillCount = 0;
+  let pillTypes = '';
+
+  for (let label in detections) {
+    for (let object of detections[label]) {
+      // Adjust bounding box coordinates based on the scaled video
+      let scaledX = object.x * scale + x;
+      let scaledY = object.y * scale + y;
+      let scaledW = object.width * scale;
+      let scaledH = object.height * scale;
+
+      if (label === 'pill') { // Adjust this label as needed
         pillCount++;
-        pillTypes += `Pill Type ${i + 1}: ${object.label}<br>`;
+        pillTypes += `Pill Type ${pillCount}: ${label}<br>`;
 
+        // Draw bounding box
         stroke(0, 255, 0);
-        strokeWeight(4);
+        strokeWeight(2);
         noFill();
-        rect(object.x, object.y, object.width, object.height);
+        rect(scaledX, scaledY, scaledW, scaledH);
+
+        // Draw label
         noStroke();
-        fill(255);
-        textSize(24);
-        text(object.label, object.x + 10, object.y + 24);
+        fill(0, 255, 0);
+        textSize(12);
+        text(label, scaledX + 4, scaledY + 16);
       }
     }
-
-    // Update pill count and pill type list
-    select('#pillCount').html(`Pill Count: ${pillCount}`);
-    select('#pillTypeList').html(`Pill Types:<br>${pillTypes}`);
-  }
-}
-
-// Start detection (triggered by "Start" button click)
-function startDetection() {
-  if (!video) {
-    setup();
   }
 
-  // Request camera access when the button is clicked
-  navigator.mediaDevices.getUserMedia({ video: true })
-    .then(stream => {
-      video.elt.srcObject = stream; // Directly setting the srcObject for the video element
-      videoReady();
-    })
-    .catch(error => {
-      console.error('Error accessing camera:', error);
-      select('#camera-error').html(`Error: ${error}`).removeClass('hidden');
-    });
-
-  document.getElementById('startButton').disabled = true;
-  document.getElementById('stopButton').disabled = false;
+  select('#pillCount').html(`Pill Count: ${pillCount}`);
+  select('#pillTypeList').html(`Pill Types:<br>${pillTypes}`);
 }
 
-// Stop detection (triggered by "Stop" button click)
 function stopDetection() {
-  if (video) {
-    let stream = video.elt.srcObject;
-    let tracks = stream.getTracks();
+  isDetecting = false;
+  select('#startButton').removeAttribute('disabled');
+  select('#stopButton').attribute('disabled', '');
 
-    tracks.forEach(function(track) {
-      track.stop();
-    });
+  // Clear detections
+  detections = {};
 
-    video.elt.srcObject = null;
-    video.hide();
-    detections = [];
-  }
-  document.getElementById('startButton').disabled = false;
-  document.getElementById('stopButton').disabled = true;
+  // Clear the canvas
+  clear();
+
+  select('#pillCount').html('Pill Count: 0');
+  select('#pillTypeList').html('Pill Types:');
 }
