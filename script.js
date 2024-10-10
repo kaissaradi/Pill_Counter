@@ -1,121 +1,111 @@
-let video;
-let detector;
-let detections = {};
-let isDetecting = false;
-let canvasWidth = 480;  // Match this to the width in CSS
-let canvasHeight = 360; // Match this to the height in CSS
+// Get elements
+const video = document.createElement('video');
+const canvas = document.getElementById('canvas');
+const captureButton = document.getElementById('captureButton');
+const uploadedImage = document.getElementById('uploaded-image');
+const cameraError = document.getElementById('camera-error');
+const outputElement = document.getElementById('output');
 
-function setup() {
-  const canvas = createCanvas(canvasWidth, canvasHeight);
-  canvas.parent('overlay');
+// Set up webcam
+let streaming = false;
 
-  video = createCapture(VIDEO);
-  video.size(canvasWidth, canvasHeight);
-  video.hide();
+// Request access to webcam
+captureButton.addEventListener('click', () => {
+  if (!streaming) {
+    navigator.mediaDevices.getUserMedia({ video: true })
+      .then(stream => {
+        console.log('Access to camera granted!');
+        video.srcObject = stream;
+        video.play();
+        streaming = true;
+        drawCanvas();
+      })
+      .catch(error => {
+        console.error('Error accessing webcam:', error);
+        cameraError.classList.remove('hidden');
+      });
+  } else {
+    try {
+      // Capture image from webcam
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const imageData = canvas.toDataURL('image/jpeg');
+      uploadedImage.src = imageData;
+      uploadedImage.style.display = 'block';
 
-  const startButton = select('#startButton');
-  const stopButton = select('#stopButton');
-  
-  startButton.mousePressed(startDetection);
-  stopButton.mousePressed(stopDetection);
-}
-
-function startDetection() {
-  if (isDetecting) return;
-  
-  isDetecting = true;
-  select('#startButton').attribute('disabled', '');
-  select('#stopButton').removeAttribute('disabled');
-  
-  detector = ml5.objectDetector('cocossd', modelReady);
-}
-
-function modelReady() {
-  console.log('Model is ready');
-  detectObjects();
-}
-
-function detectObjects() {
-  if (!isDetecting) return;
-
-  detector.detect(video, gotDetections);
-}
-
-function gotDetections(error, results) {
-  if (error) {
-    console.error('Detection error:', error);
-    select('#camera-error').removeClass('hidden');
-    return;
-  }
-
-  // Clear old detections
-  detections = {};
-
-  for (let object of results) {
-    if (!detections[object.label]) {
-      detections[object.label] = [];
-    }
-    detections[object.label].push(object);
-  }
-
-  detectObjects(); // Continue the detection loop
-}
-
-function draw() {
-  if (!isDetecting) return;
-
-  // Scale and center the video to fit the canvas
-  let scale = Math.min(width / video.width, height / video.height);
-  let x = (width - video.width * scale) / 2;
-  let y = (height - video.height * scale) / 2;
-  
-  image(video, x, y, video.width * scale, video.height * scale);
-
-  let pillCount = 0;
-  let pillTypes = '';
-
-  for (let label in detections) {
-    for (let object of detections[label]) {
-      // Adjust bounding box coordinates based on the scaled video
-      let scaledX = object.x * scale + x;
-      let scaledY = object.y * scale + y;
-      let scaledW = object.width * scale;
-      let scaledH = object.height * scale;
-
-      if (label === 'pill') { // Adjust this label as needed
-        pillCount++;
-        pillTypes += `Pill Type ${pillCount}: ${label}<br>`;
-
-        // Draw bounding box
-        stroke(0, 255, 0);
-        strokeWeight(2);
-        noFill();
-        rect(scaledX, scaledY, scaledW, scaledH);
-
-        // Draw label
-        noStroke();
-        fill(0, 255, 0);
-        textSize(12);
-        text(label, scaledX + 4, scaledY + 16);
-      }
+      // Send image to Replicate API
+      sendImageToReplicateAPI(imageData);
+    } catch (error) {
+      console.error('Error capturing image:', error);
     }
   }
+});
 
-  select('#pillCount').html(`Pill Count: ${pillCount}`);
-  select('#pillTypeList').html(`Pill Types:<br>${pillTypes}`);
+// Draw webcam feed on canvas
+function drawCanvas() {
+  try {
+    if (streaming) {
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      requestAnimationFrame(drawCanvas);
+    }
+  } catch (error) {
+    console.error('Error drawing canvas:', error);
+  }
 }
 
-function stopDetection() {
-  isDetecting = false;
-  select('#startButton').removeAttribute('disabled');
-  select('#stopButton').attribute('disabled', '');
+// Handle image upload
+document.getElementById('image-upload').addEventListener('change', event => {
+  try {
+    const file = event.target.files[0];
+    const reader = new FileReader();
+    reader.onload = () => {
+      uploadedImage.src = reader.result;
+      uploadedImage.style.display = 'block';
 
-  // Clear detections
-  detections = {};
+      // Send image to Replicate API
+      sendImageToReplicateAPI(reader.result);
+    };
+    reader.readAsDataURL(file);
+  } catch (error) {
+    console.error('Error uploading image:', error);
+  }
+});
 
-  // Clear the canvas
-  clear();
+// Send image to Replicate API
+function sendImageToReplicateAPI(imageData) {
+  const replicateApiToken = 'apikey';
+  const url = 'https://api.replicate.com/v1/predictions';
+  const headers = {
+    'Authorization': `Bearer ${replicateApiToken}`,
+    'Content-Type': 'application/json',
+    'Prefer': 'wait'
+  };
+  const data = {
+    'version': '76ebd700864218a4ca97ac1ccff068be7222272859f9ea2ae1dd4ac073fa8de8',
+    'input': {
+      'text': 'How many pills are in the image. Please give you response as a JSON object where you answer is stored in the variable numPills.This is very important to reply in structured JSON in the form of numPills and how maany pills you counted',
+      'image': imageData
+    }
+  };
 
-  select('#pillCount').html('Pill Count: 0');
-  select('#pillTypeList').html('Pill Types:');
+  fetch(url, {
+    method: 'POST',
+    headers: headers,
+    body: JSON.stringify(data),
+    mode: "no-cors"
+  })
+  .then(response => response.json())
+  .then(data => {
+    console.log(data);
+    const outputJson = document.getElementById('output-json');
+    outputJson.innerHTML = JSON.stringify(data, null, 2);
+    
+    const numPillsOutput = document.getElementById('num-pills-output');
+    numPillsOutput.innerHTML = `Number of pills: ${data.output.numPills}`;
+  })
+  .catch(error => {
+    console.error('Error sending image to Replicate API:', error);
+  });
 }
+
